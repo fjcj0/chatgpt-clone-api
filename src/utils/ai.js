@@ -1,17 +1,17 @@
 import "dotenv/config";
 import { GoogleGenAI } from "@google/genai";
-const ai = new GoogleGenAI(process.env.GEMENIE_API_KEY);
-async function askAi() {
+const ai = new GoogleGenAI({ apiKey: process.env.GEMENIE_API_KEY });
+async function askAi(prompt) {
     const response = await ai.models.generateContent({
         model: "gemini-2.5-flash",
-        contents: "Explain how AI works in a few words",
+        contents: prompt
     });
     return response.text;
 }
-async function orderImageFromAi() {
+async function orderImageFromAi(prompt) {
     const response = await ai.models.generateImages({
         model: 'imagen-4.0-generate-001',
-        prompt: 'Robot holding a red skateboard',
+        prompt: prompt,
         config: {
             numberOfImages: 1,
         },
