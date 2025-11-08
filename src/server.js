@@ -2,6 +2,7 @@ import "dotenv/config";
 import express, { request, response } from 'express';
 import http from 'http';
 import { sql } from "./config/db.js";
+import chatRoutes from './routes/ai.route.js';
 const app = express();
 app.use(express.json());
 app.get('/cron', (request, response) => {
@@ -10,6 +11,7 @@ app.get('/cron', (request, response) => {
     });
 });
 const server = http.createServer(app);
+app.use('/api/chat', chatRoutes);
 const initDb = async () => {
     try {
         await sql`
