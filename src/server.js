@@ -42,57 +42,94 @@ const extractImagePrompt = (content) => {
         .trim();
     return prompt || content;
 };
+const fixDatabaseSequences = async () => {
+    try {
+        const maxChatId = await sql`SELECT COALESCE(MAX(id), 0) as max_id FROM chats`;
+        await sql`SELECT setval('chats_id_seq', ${maxChatId[0].max_id}, true)`;
+        const maxMessageId = await sql`SELECT COALESCE(MAX(id), 0) as max_id FROM messages`;
+        await sql`SELECT setval('messages_id_seq', ${maxMessageId[0].max_id}, true)`;
+        console.log('Database sequences fixed successfully');
+    } catch (error) {
+        console.log('Error fixing sequences:', error.message);
+    }
+};
 io.on("connection", (socket) => {
     console.log(`New client connected: ${socket.id}`);
     socket.on('sendMessageToAi', async (data) => {
+        let curChatID = null;
         try {
             const { chatId, content, clerkId, image } = data;
             if (!clerkId) {
                 socket.emit('error', { error: 'User must be logged in' });
                 return;
             }
-            let curChatID = chatId;
+            if (!content || content.trim() === '') {
+                socket.emit('error', { error: 'Message content cannot be empty' });
+                return;
+            }
             let userMessage;
-            if (!chatId) {
-                const title = content.substring(0, 50) + (content.length > 50 ? '...' : '');
-                const newChat = await sql`
-                    INSERT INTO chats(clerk_id, title)
-                    VALUES (${clerkId}, ${title}) 
-                    RETURNING *;
-                `;
-                curChatID = newChat[0].id;
-                userMessage = await sql`
-                    INSERT INTO messages(chat_id, role, image, content)
-                    VALUES (${newChat[0].id}, 'user', ${image}, ${content})
-                    RETURNING *;
-                `;
-                socket.emit("receive", {
-                    chat: newChat[0],
-                    userMessage: userMessage[0]
-                });
-            } else {
-                const existingChat = await sql`
-                    SELECT id FROM chats WHERE id = ${chatId} AND clerk_id = ${clerkId}
-                `;
-                if (existingChat.length === 0) {
-                    socket.emit('error', { error: 'Chat not found or access denied' });
+            console.log('Processing message for user:', clerkId, 'chat:', chatId);
+            if (!chatId || chatId === null || chatId === 0) {
+                try {
+                    const title = content.substring(0, 50) + (content.length > 50 ? '...' : '');
+                    console.log('Creating new chat for user:', clerkId);
+                    const newChat = await sql`
+                        INSERT INTO chats (clerk_id, title)
+                        VALUES (${clerkId}, ${title}) 
+                        RETURNING *;
+                    `;
+                    if (!newChat || newChat.length === 0) {
+                        throw new Error('Failed to create new chat');
+                    }
+                    curChatID = newChat[0].id;
+                    console.log('New chat created with ID:', curChatID, 'for user:', clerkId);
+                    userMessage = await sql`
+                        INSERT INTO messages (chat_id, role, image, content)
+                        VALUES (${curChatID}, 'user', ${image || null}, ${content.trim()})
+                        RETURNING *;
+                    `;
+                    socket.emit("receive", {
+                        chat: newChat[0],
+                        userMessage: userMessage[0]
+                    });
+                } catch (chatError) {
+                    console.error('Chat creation error:', chatError);
+                    socket.emit('error', { error: 'Failed to create chat: ' + chatError.message });
                     return;
                 }
-                userMessage = await sql`
-                    INSERT INTO messages(chat_id, role, image, content)
-                    VALUES (${curChatID}, 'user', ${image}, ${content})
-                    RETURNING *;
-                `;
-                socket.emit("receive", {
-                    userMessage: userMessage[0]
-                });
+            } else {
+                try {
+                    const existingChat = await sql`
+                        SELECT id FROM chats 
+                        WHERE id = ${chatId} AND clerk_id = ${clerkId}
+                    `;
+                    if (existingChat.length === 0) {
+                        console.log('Chat not found or access denied:', chatId, 'for user:', clerkId);
+                        socket.emit('error', { error: 'Chat not found or access denied' });
+                        return;
+                    }
+                    curChatID = chatId;
+                    userMessage = await sql`
+                        INSERT INTO messages (chat_id, role, image, content)
+                        VALUES (${curChatID}, 'user', ${image || null}, ${content.trim()})
+                        RETURNING *;
+                    `;
+                    socket.emit("receive", {
+                        userMessage: userMessage[0]
+                    });
+                } catch (messageError) {
+                    console.error('Message insertion error:', messageError);
+                    socket.emit('error', { error: 'Failed to save message: ' + messageError.message });
+                    return;
+                }
             }
             try {
                 if (shouldGenerateImage(content)) {
                     const imagePrompt = extractImagePrompt(content);
+                    console.log('Generating image for prompt:', imagePrompt);
                     const imageData = await aiService.generateImageFromAi(imagePrompt);
                     const imageMessage = await sql`
-                        INSERT INTO messages(chat_id, role, content, image)
+                        INSERT INTO messages (chat_id, role, content, image)
                         VALUES (${curChatID}, 'assistant', ${`Generated image: ${imagePrompt}`}, ${imageData[0]})
                         RETURNING *;
                     `;
@@ -109,7 +146,7 @@ io.on("connection", (socket) => {
                         aiResponse = await aiService.askAi(content);
                     }
                     const assistantMessage = await sql`
-                        INSERT INTO messages(chat_id, role, content)
+                        INSERT INTO messages (chat_id, role, content)
                         VALUES (${curChatID}, 'assistant', ${aiResponse})
                         RETURNING *;
                     `;
@@ -127,7 +164,7 @@ io.on("connection", (socket) => {
             } catch (aiError) {
                 console.error('AI response error:', aiError.message);
                 const errorMessage = await sql`
-                    INSERT INTO messages(chat_id, role, content)
+                    INSERT INTO messages (chat_id, role, content)
                     VALUES (${curChatID}, 'assistant', ${'Sorry, I encountered an error processing your request.'})
                     RETURNING *;
                 `;
@@ -138,8 +175,8 @@ io.on("connection", (socket) => {
                 });
             }
         } catch (error) {
-            console.log('Socket error:', error.message);
-            socket.emit('error', { error: 'Internal server error' });
+            console.error('Unexpected socket error:', error.message);
+            socket.emit('error', { error: 'Internal server error: ' + error.message });
         }
     });
     socket.on('disconnect', () => {
@@ -178,10 +215,12 @@ const initDb = async () => {
             try {
                 await index.sql;
             } catch (error) {
-                console.log(`Index ${index.name} might already exist or there was an error:`, error.message);
+                console.log(`Index ${index.name} might already exist:`, error.message);
             }
         }
         console.log('Database initialized successfully!');
+        await fixDatabaseSequences();
+
     } catch (error) {
         console.log('DB init error:', error.message);
         throw error;
