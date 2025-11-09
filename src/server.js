@@ -71,6 +71,13 @@ io.on("connection", (socket) => {
                     userMessage: userMessage[0]
                 });
             } else {
+                const existingChat = await sql`
+                    SELECT id FROM chats WHERE id = ${chatId} AND clerk_id = ${clerkId}
+                `;
+                if (existingChat.length === 0) {
+                    socket.emit('error', { error: 'Chat not found or access denied' });
+                    return;
+                }
                 userMessage = await sql`
                     INSERT INTO messages(chat_id, role, image, content)
                     VALUES (${curChatID}, 'user', ${image}, ${content})
@@ -112,6 +119,11 @@ io.on("connection", (socket) => {
                         type: 'text'
                     });
                 }
+                await sql`
+                    UPDATE chats 
+                    SET updated_at = CURRENT_TIMESTAMP 
+                    WHERE id = ${curChatID}
+                `;
             } catch (aiError) {
                 console.error('AI response error:', aiError.message);
                 const errorMessage = await sql`
@@ -158,6 +170,7 @@ const initDb = async () => {
         `;
         const indexes = [
             { name: 'idx_chats_clerk_id', sql: sql`CREATE INDEX IF NOT EXISTS idx_chats_clerk_id ON chats(clerk_id);` },
+            { name: 'idx_chats_updated_at', sql: sql`CREATE INDEX IF NOT EXISTS idx_chats_updated_at ON chats(updated_at);` },
             { name: 'idx_messages_chat_id', sql: sql`CREATE INDEX IF NOT EXISTS idx_messages_chat_id ON messages(chat_id);` },
             { name: 'idx_messages_created_at', sql: sql`CREATE INDEX IF NOT EXISTS idx_messages_created_at ON messages(created_at);` }
         ];
