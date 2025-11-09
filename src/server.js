@@ -183,7 +183,7 @@ const initDb = async () => {
         }
         console.log('Database initialized successfully!');
     } catch (error) {
-        console.error('DB init error:', error.message);
+        console.log('DB init error:', error.message);
         throw error;
     }
 };
