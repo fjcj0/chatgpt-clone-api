@@ -8,7 +8,7 @@ async function askAi(prompt) {
     });
     return response.text;
 }
-async function orderImageFromAi(prompt) {
+async function generateImageFromAi(prompt) {
     const response = await ai.models.generateImages({
         model: 'imagen-4.0-generate-001',
         prompt: prompt,
@@ -20,4 +20,4 @@ async function orderImageFromAi(prompt) {
         generatedImage.image.imageBytes
     );
 }
-export default { orderImageFromAi, askAi };
+export default { generateImageFromAi, askAi };
