@@ -130,7 +130,7 @@ io.on("connection", (socket) => {
                     const imageData = await aiService.generateImageFromAi(imagePrompt);
                     const imageMessage = await sql`
                         INSERT INTO messages (chat_id, role, content, image)
-                        VALUES (${curChatID}, 'assistant', ${`Generated image: ${imagePrompt}`}, ${imageData[0]})
+                        VALUES (${curChatID}, 'assistant', ${imagePrompt}, ${imageData[0]})
                         RETURNING *;
                     `;
                     socket.emit("aiResponse", {

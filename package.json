@@ -16,6 +16,7 @@
   },
   "dependencies": {
     "@google/genai": "^1.29.0",
+    "@huggingface/inference": "^4.13.2",
     "@neondatabase/serverless": "^1.0.2",
     "cloudinary": "^2.8.0",
     "dotenv": "^17.2.3",
